@@ -23,20 +23,24 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(TwColors.HeaderTeal.toArgb()),
-            navigationBarStyle = SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
-        setContent { DialerRoot() }
+        // Opened from a phone-number link elsewhere: pre-fill the number
+        val dialNumber = intent?.data?.takeIf { it.scheme == "tel" }?.schemeSpecificPart.orEmpty()
+        setContent { DialerRoot(dialNumber) }
     }
 }
 
 @Composable
-private fun DialerRoot() {
+private fun DialerRoot(initialNumber: String) {
     DialerPermissionGate { perms ->
         val context = LocalContext.current
-        var number by rememberSaveable { mutableStateOf("") }
+        var number by rememberSaveable { mutableStateOf(initialNumber) }
         var tab by rememberSaveable { mutableStateOf(DialerTab.Keypad) }
         var contacts by remember { mutableStateOf(emptyList<IndexedContact>()) }
+
+        DialerSetupEffects()
 
         LaunchedEffect(perms.contacts) {
             contacts = if (perms.contacts) loadContacts(context) else emptyList()
