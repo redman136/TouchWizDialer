@@ -9,6 +9,7 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.telecom.PhoneAccount
@@ -109,6 +110,37 @@ fun DialerPermissionGate(content: @Composable (PermissionState) -> Unit) {
     }
 }
 
+/**
+ * Asks for notification permission (needed for the incoming-call screen to pop up),
+ * then asks once to become the default phone app.
+ */
+@Composable
+fun DialerSetupEffects() {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("dialer_setup", Context.MODE_PRIVATE) }
+    val roleLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
+
+    fun requestRoleOnce() {
+        if (prefs.getBoolean("role_asked", false)) return
+        prefs.edit().putBoolean("role_asked", true).apply()
+        createDialerRoleIntent(context)?.let { roleLauncher.launch(it) }
+    }
+
+    val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        requestRoleOnce()
+    }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            !context.has(Manifest.permission.POST_NOTIFICATIONS)
+        ) {
+            notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            requestRoleOnce()
+        }
+    }
+}
+
 @Composable
 private fun PermissionRationale(permanentlyDenied: Boolean, onRequest: () -> Unit, onOpenSettings: () -> Unit) {
     Column(
@@ -141,7 +173,14 @@ fun placeCall(context: Context, number: String) {
 }
 
 fun createDialerRoleIntent(context: Context): Intent? {
-    val rm = context.getSystemService(RoleManager::class.java) ?: return null
-    return if (rm.isRoleAvailable(RoleManager.ROLE_DIALER) && !rm.isRoleHeld(RoleManager.ROLE_DIALER))
-        rm.createRequestRoleIntent(RoleManager.ROLE_DIALER) else null
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val rm = context.getSystemService(RoleManager::class.java) ?: return null
+        return if (rm.isRoleAvailable(RoleManager.ROLE_DIALER) && !rm.isRoleHeld(RoleManager.ROLE_DIALER))
+            rm.createRequestRoleIntent(RoleManager.ROLE_DIALER) else null
+    }
+    val tm = context.getSystemService(TelecomManager::class.java) ?: return null
+    return if (tm.defaultDialerPackage != context.packageName)
+        Intent(TelecomManager.ACTION_CHANGE_DEFAULT_DIALER)
+            .putExtra(TelecomManager.EXTRA_CHANGE_DEFAULT_DIALER_PACKAGE_NAME, context.packageName)
+    else null
 }
